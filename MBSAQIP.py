@@ -6,17 +6,12 @@ from statsmodels.stats.proportion import proportions_chisquare
 def generate_characteristic_table(input_txt_path, output_csv_path):
     # 1. Load the dataset from your text file using Polars
     print(f"Reading data from {input_txt_path}...")
-    df = pl.read_csv(
-        input_txt_path,
-        separator="\t",
-        null_values=["NULL", ""],
-        infer_schema_length=0,
-        truncate_ragged_lines=True,
-    )
+    df = pl.read_csv(input_txt_path, separator="\t", infer_schema_length=10000)
+
     # 2. Filter for Year 2021 and target CPT codes
     # CPT 43775 = Sleeve Gastrectomy, CPT 43644 = Roux-en-Y Gastric Bypass
     df_2021 = df.filter(
-        (pl.col("OPYEAR") == "2021") & 
+        (pl.col("OPYEAR") == 2021) & 
         (pl.col("CPT").cast(pl.Utf8).str.strip_chars().is_in(["43775", "43644"]))
     )
 
@@ -34,17 +29,11 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
 
     # Helper function for continuous metrics (Age, BMI)
     def analyze_continuous(col_name, data_sleeve, data_rygb):
-        s_vals = data_sleeve.select(col_name).drop_nulls().to_series()
-        r_vals = data_rygb.select(col_name).drop_nulls().to_series()
+        s_vals = data_sleeve.select(col_name).drop_nulls().to_series().to_numpy()
+        r_vals = data_rygb.select(col_name).drop_nulls().to_series().to_numpy()
         
-        s_vals = s_vals.cast(pl.Float64).drop_nulls()
-        s_arr = s_vals.to_numpy()
-        s_mean, s_std = (np.mean(s_arr)), np.std(s_arr) if len(s_arr) > 0 else (0, 0)
-        
-        r_vals = r_vals.cast(pl.Float64)
-        r_arr = r_vals.to_numpy()
-        r_arr = r_arr[~np.isnan(r_arr)]
-        r_mean, r_std = (np.mean(r_arr)), np.std(r_arr) if len(r_arr) > 0 else (0, 0)
+        s_mean, s_std = np.mean(s_vals), np.std(s_vals) if len(s_vals) > 0 else (0, 0)
+        r_mean, r_std = np.mean(r_vals), np.std(r_vals) if len(r_vals) > 0 else (0, 0)
         
         # Calculate p-value via independent T-test
         if len(s_vals) > 1 and len(r_vals) > 1:
@@ -91,71 +80,22 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
     # Gather rows for final table
     results = []
     
-    # Process continuous variables [Colomn Name, Readable Label]
-    continuous_features = [
-        ("AGE",         "Age (years)"),
-        ("BMI",         "Pre-Op BMI"),
-        ("BMI_HIGH_BAR","Highest Pre-Op BMI"),
-        ("OPLENGTH",    "Operation Length (min)"),
-        ("DTDISCH_OP",  "Length of Stay (days)"),
-        ("ALBUMIN",     "Albumin (g/dL)"),
-        ("CREATININE",  "Creatinine (mg/dL)"),
-        ("HCT",         "Hematocrit (%)"),
-        ("HEMO",        "HbA1c (%)")
-    ]
-    for col, label in continuous_features:
+    # Process continuous variables
+    for col in ["AGE", "BMI"]:
         if col in df_filtered.columns:
-            row = analyze_continuous(col, sleeve_group, rygb_group)
-            row["Variable"] = label
-            results.append(row)
+            results.append(analyze_continuous(col, sleeve_group, rygb_group))
             
     # Process categorical variables [Column Name, Variable option]
     cat_features = [
-        ("SEX",                          "Female",           "Female Sex"),
-        ("DIABETES",                     "Yes, insulin",     "Diabetes (insulin-dependent)"),
-        ("DIABETES",                     "Yes, non-insulin", "Diabetes (non-insulin)"),
-        ("HYPERTENSION",                 "Yes",              "Hypertension"),
-        ("HYPERLIPIDEMIA",               "Yes",              "Hyperlipidemia"),
-        ("SLEEP_APNEA",                  "Yes",              "Obstructive Sleep Apnea"),
-        ("GERD",                         "Yes",              "GERD"),
-        ("SMOKER",                       "Yes",              "Current Smoker"),
-        ("COPD",                         "Yes",              "COPD"),
-        ("HISTORY_PE",                   "Yes",              "History of PE"),
-        ("HISTORY_DVT",                  "Yes",              "History of DVT"),
-        ("RENAL_INSUFFICIENCY",          "Yes",              "Renal Insufficiency"),
-        ("PREVIOUS_SURGERY",             "Yes",              "Previous Foregut Surgery"),
-        ("IMMUNOSUPR_THER",              "Yes",              "Immunosuppressive Therapy"),
-        ("THERAPEUTIC_ANTICOAGULATION",  "Yes",              "Therapeutic Anticoagulation"), 
-        ("IVC_FILTER",                   "Yes",              "IVC Filter"),
-        ("DIALYSIS",                     "Yes",              "On Dialysis"),
-        ("ROBOTIC_ASST",                 "Yes",              "Robotic Assist"),
-        ("APPROACH_CONVERTED",           "Yes",              "Approach Converted"),
-        ("DRAIN_PLACED",                 "Yes",              "Drain Placed"),
-        ("REOP30",                       "Yes",              "Reoperation within 30 Days"),
-        ("READ30",                       "Yes",              "Readmission within 30 Days"),
-        ("INTV30",                       "Yes",              "Intervention within 30 Days"),
-        ("POSTOPANASTSLLEAK",            "Yes",              "Anastomotic/Staple Line Leak"),
-        ("PULMONARYEMBOLSM",             "Yes",              "Pulmonary Embolism"),
-        ("POSTOPSEPSIS",                 "Yes",              "Sepsis"),
-        ("POSTOPSEPTICSHOCK",            "Yes",              "Septic Shock"),
-        ("VEINTHROMBREQTER",             "Yes",              "Venous Thrombosis"),
-        ("TRANSFINTOPPSTOP",             "Yes",              "Blood Transfusion"),
-        ("POSTOPPNEUMONIA",              "Yes",              "Pneumonia"), 
-        ("UNPLANNEDADMISSIONICU30",      "Yes",              "Unplanned ICU Admission"),
-        ("GITRACTBLEED",                 "Yes",              "GI Tract Bleeding"),
-        ("BOWELOBSTRUCTION",             "Yes",              "Bowel Obstruction"),
-        ("EMERG_VISIT_OUT",              "Yes",              "Emergency Department Visit"),
-        ("CVA",                          "Yes",              "Stroke/CVA"),
-        ("MYOCARDIALINFR",               "Yes",              "Myocardial Infarction"),
-        ("POSTOPUTI",                    "Yes",              "Urinary Tract Infection"),
-        ("CDIFF",                        "Yes",              "C. diff Colitis")
+        ("SEX", "Female"),
+        ("DIABETES", "Yes non-insulin"), 
+        ("HYPERTENSION", "Yes"),
+        ("SMOKER", "Yes")
     ]
     
-    for col, target, label in cat_features:
+    for col, target in cat_features:
         if col in df_filtered.columns:
-            row = analyze_categorical(col, target, sleeve_group, rygb_group)
-            row["Variable"] = label
-            results.append(row)
+            results.append(analyze_categorical(col, target, sleeve_group, rygb_group))
 
     # 3. Build Table and Save out to CSV
     table_1 = pl.DataFrame(results)
@@ -164,7 +104,7 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
 
 if __name__ == '__main__':
     # Update these paths with your exact workspace filenames!
-    input_file = "/Users/ninaerickson/Downloads/main_2021.txt"
+    input_file = "/Users/zoesumner/Desktop/MBSAQIP Data/main_2021.txt"
     output_file = "mbsaqip_characteristic_table.csv"
     
     generate_characteristic_table(input_file, output_file)
