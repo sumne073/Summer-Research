@@ -22,11 +22,26 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
         .otherwise(pl.lit("RYGB"))
         .alias("Procedure")
     )
+    
+    # Create composite columns before splitting into sleeve/rygb groups
+    df_filtered = df_filtered.with_columns([
+        pl.when(
+            (pl.col("MI_ALL_HISTORY") == "Yes") |
+            (pl.col("PTC") == "Yes") |
+            (pl.col("PCARD") == "Yes")
+        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("CARDIAC_HISTORY"),
+
+        pl.when(
+            (pl.col("HISTORY_DVT") == "Yes") |
+            (pl.col("THERAPEUTIC_ANTICOAGULATION") == "Yes") |
+            (pl.col("VENOUS_STASIS") == "Yes")
+        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("VASCULAR_HISTORY"),
+    ])
 
     # Separate the cohorts for baseline analysis
     sleeve_group = df_filtered.filter(pl.col("Procedure") == "Sleeve")
     rygb_group = df_filtered.filter(pl.col("Procedure") == "RYGB")
-
+    
     # Helper function for continuous metrics (Age, BMI)
     def analyze_continuous(col_name, data_sleeve, data_rygb):
         s_vals = data_sleeve.select(col_name).drop_nulls().to_series().to_numpy()
@@ -45,7 +60,6 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
             "Variable": col_name,
             "Sleeve Gastrectomy": f"{s_mean:.2f} (± {s_std:.2f})",
             "Roux-en-Y Gastric Bypass": f"{r_mean:.2f} (± {r_std:.2f})",
-            "p-value": f"{p_val:.4f}" if p_val >= 0.0001 else "<0.0001"
         }
 
     # Helper function for categorical data ratios using statsmodels
@@ -74,25 +88,65 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
             "Variable": f"{col_name} ({target_value})",
             "Sleeve Gastrectomy": f"{s_pos} ({s_pct:.1f}%)",
             "Roux-en-Y Gastric Bypass": f"{r_pos} ({r_pct:.1f}%)",
-            "p-value": f"{p_val:.4f}" if p_val >= 0.0001 else "<0.0001"
         }
 
     # Gather rows for final table
     results = []
     
-    # Process continuous variables
-    for col in ["AGE", "BMI"]:
+    # Process continuous variables (Fixed "HEMO" typo here)
+    for col in ["AGE", "BMI", "ALBUMIN", "CREATININE", "HCT", "HEMO", "OPLENGTH"]:
         if col in df_filtered.columns:
             results.append(analyze_continuous(col, sleeve_group, rygb_group))
             
     # Process categorical variables [Column Name, Variable option]
     cat_features = [
+        # Demographics
         ("SEX", "Female"),
-        ("DIABETES", "Yes non-insulin"), 
+        ("HISPANIC", "Yes"),
+        # ASA Class (collapsed to 3 groups per the study)
+        ("ASACLASS", "ASA I - Normal/Healthy"),
+        ("ASACLASS", "ASA II - Mild systemic disease"),
+        ("ASACLASS", "ASA III - Severe systemic disease"),
+        ("ASACLASS", "ASA IV - Severe systemic disease threat to life"),
+        # Functional status
+        ("FUNSTATPRESURG", "Independent"),
+        # Race
+        ("RACE_PUF", "White"),
+        ("RACE_PUF", "Black or African American"),
+        ("RACE_PUF", "Unknown/Not Reported"),
+        # Comorbidities
+        ("DIABETES", "Yes, insulin"),
+        ("DIABETES", "Yes non-insulin"),
         ("HYPERTENSION", "Yes"),
-        ("SMOKER", "Yes")
+        ("SLEEP_APNEA", "Yes"),
+        ("GERD", "Yes"),
+        ("COPD", "Yes"),
+        ("RENAL_INSUFFICIENCY", "Yes"),
+        ("HYPERLIPIDEMIA", "Yes"),
+        ("IMMUNOSUPR_THER", "Yes"),
+        ("SMOKER", "Yes"),
+        ("IVC_FILTER", "Yes"),
+        ("DIALYSIS", "Yes"),
+        # Cardiac history components (for composite)
+        ("MI_ALL_HISTORY", "Yes"),
+        ("PTC", "Yes"),
+        ("PCARD", "Yes"),
+        # Vascular history components (for composite)
+        ("HISTORY_DVT", "Yes"),
+        ("THERAPEUTIC_ANTICOAGULATION", "Yes"),
+        ("VENOUS_STASIS", "Yes"),
+        ("HISTORY_PE", "Yes"),
+        # Surgical / intraoperative
+        ("ROBOTIC_ASST", "Yes"),
+        ("DRAIN_PLACED", "Yes"),
+        ("ANASTOMOSIS_CHECKED", "Yes"),
+        ("APPROACH_CONVERTED", "Yes"),
+        # VTE prophylaxis method
+        ("METH_VTEPROPHYL", "Mechanical and pharmacologic"),
+        ("METH_VTEPROPHYL", "Mechanical only"),
+        ("METH_VTEPROPHYL", "Pharmacologic only"),
     ]
-    
+
     for col, target in cat_features:
         if col in df_filtered.columns:
             results.append(analyze_categorical(col, target, sleeve_group, rygb_group))
@@ -101,6 +155,7 @@ def generate_characteristic_table(input_txt_path, output_csv_path):
     table_1 = pl.DataFrame(results)
     table_1.write_csv(output_csv_path)
     print(f"Success! Characteristic baseline table exported to: {output_csv_path}")
+
 
 if __name__ == '__main__':
     # Update these paths with your exact workspace filenames!
