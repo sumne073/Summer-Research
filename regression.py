@@ -15,7 +15,7 @@ def generate_regression_table(input_txt_path, output_csv_path):
     )
 
     # --- Schema Validation Stage ---
-    required_puf_columns = ["AGE", "BMI", "SEX", "OPLENGTH", "READ30", "REOP30", "COMPL_LEAK"]
+    required_puf_columns = ["AGE", "BMI", "SEX", "OPLENGTH", "READ30", "REOP30", "POSTOPANASTSLLEAK"]
     missing_from_file = [col for col in required_puf_columns if col not in df_2021.columns]
     
     if missing_from_file:
@@ -25,12 +25,12 @@ def generate_regression_table(input_txt_path, output_csv_path):
     # 2. Variable Structural Alignment
     print("Mapping variables and building clinical composites...")
     df_filtered = df_2021.with_columns([
-        pl.col("AGE").alias("AGE_MODEL"),
-        pl.col("BMI").alias("BMI_MODEL"),
+        pl.col("AGE").alias("AGEMODEL"),
+        pl.col("BMI").alias("BMIMODEL"),
         pl.col("OPLENGTH").alias("OPLENGTH"),
         pl.col("READ30").alias("READMISSION"),
         pl.col("REOP30").alias("REOPERATION"),
-        pl.col("COMPL_LEAK").alias("LEAK")
+        pl.col("POSTOPANASTSLLEAK").alias("LEAK")
     ])
 
     # Procedure type label
@@ -47,27 +47,27 @@ def generate_regression_table(input_txt_path, output_csv_path):
             (pl.col("MI_ALL_HISTORY") == "Yes") |
             (pl.col("PTC") == "Yes") |
             (pl.col("PCARD") == "Yes")
-        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("CARDIAC_HISTORY"),
+        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("CARDIACHISTORY"),
 
         pl.when(
             (pl.col("HISTORY_DVT") == "Yes") |
             (pl.col("THERAPEUTIC_ANTICOAGULATION") == "Yes") |
             (pl.col("VENOUS_STASIS") == "Yes")
-        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("VASCULAR_HISTORY"),
+        ).then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("VASCULARHISTORY"),
     ])
 
     # Safe-mapping dictionary for remaining model variables
     mapping_dict = {
         "SEX": "SEX", "HISPANIC": "HISPANIC", "ASACLASS": "ASACLASS", 
-        "FUNSTATPRESURG": "FUNSTATPRESURG", "RACE_PUF": "RACE_PUF", 
-        "DIABETES": "DIABETES", "HYPERTENSION": "HYPERTENSION", "SLEEP_APNEA": "SLEEP_APNEA", 
-        "GERD": "GERD", "COPD": "COPD", "RENAL_INSUFFICIENCY": "RENAL_INSUFFICIENCY", 
-        "HYPERLIPIDEMIA": "HYPERLIPIDEMIA", "IMMUNOSUPR_THER": "IMMUNOSUPR_THER", 
-        "SMOKER": "SMOKER", "IVC_FILTER": "IVC_FILTER", "DIALYSIS": "DIALYSIS", 
-        "HISTORY_PE": "HISTORY_PE", "ALBUMIN": "ALBUMIN", "CREATININE": "CREATININE", 
-        "HCT": "HCT", "HBA1C": "HEMO", "ROBOTIC_ASST": "ROBOTIC_ASST", 
-        "DRAIN_PLACED": "DRAIN_PLACED", "ANASTOMOSIS_CHECKED": "ANASTOMOSIS_CHECKED", 
-        "APPROACH_CONVERTED": "APPROACH_CONVERTED", "METH_VTEPROPHYL": "METH_VTEPROPHYL"
+        "FUNSTATPRESURG": "FUNSTATPRESURG", "RACE_PUF": "RACEPUF", 
+        "DIABETES": "DIABETES", "HYPERTENSION": "HYPERTENSION", "SLEEP_APNEA": "SLEEPAPNEA", 
+        "GERD": "GERD", "COPD": "COPD", "RENAL_INSUFFICIENCY": "RENALINSUFFICIENCY", 
+        "HYPERLIPIDEMIA": "HYPERLIPIDEMIA", "IMMUNOSUPR_THER": "IMMUNOSUPRTHER", 
+        "SMOKER": "SMOKER", "IVC_FILTER": "IVCFILTER", "DIALYSIS": "DIALYSIS", 
+        "HISTORY_PE": "HISTORYPE", "ALBUMIN": "ALBUMIN", "CREATININE": "CREATININE", 
+        "HCT": "HCT", "HBA1C": "HEMO", "ROBOTIC_ASST": "ROBOTICASST", 
+        "DRAIN_PLACED": "DRAINPLACED", "ANASTOMOSIS_CHECKED": "ANASTOMOSISCHECKED", 
+        "APPROACH_CONVERTED": "APPROACHCONVERTED", "METH_VTEPROPHYL": "METHVTEPROPHYL"
     }
     
     for raw_name, model_name in mapping_dict.items():
@@ -82,86 +82,96 @@ def generate_regression_table(input_txt_path, output_csv_path):
     if mortality_col:
         df_filtered = df_filtered.with_columns(
             pl.when((pl.col("REOPERATION") == "Yes") | (pl.col("LEAK") == "Yes") | (pl.col(mortality_col) == "Yes"))
-            .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("SERIOUS_COMPLICATION")
+            .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("SERIOUSCOMPLICATION")
         )
     else:
         df_filtered = df_filtered.with_columns(
             pl.when((pl.col("REOPERATION") == "Yes") | (pl.col("LEAK") == "Yes"))
-            .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("SERIOUS_COMPLICATION")
+            .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("SERIOUSCOMPLICATION")
         )
 
     df_filtered = df_filtered.with_columns([
-        pl.when((pl.col("SERIOUS_COMPLICATION") == "Yes") | (pl.col("READMISSION") == "Yes"))
-        .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("ANY_COMPLICATION")
+        pl.when((pl.col("SERIOUSCOMPLICATION") == "Yes") | (pl.col("READMISSION") == "Yes"))
+        .then(pl.lit("Yes")).otherwise(pl.lit("No")).alias("ANYCOMPLICATION")
     ])
 
     # --- 3. Processing for Regression Framework ---
     print("Formatting variables for multivariable logistic models...")
-    df_model = df_filtered.to_pandas()
+    # Convert polars -> pandas without relying on pyarrow internals
+    # (avoids compatibility issues across polars/pyarrow versions on Python 3.14)
+    df_model = pd.DataFrame({col: df_filtered[col].to_list() for col in df_filtered.columns})
 
     # Scale operative time per 10-minute intervals
-    df_model["OPLENGTH_10MIN"] = pd.to_numeric(df_model["OPLENGTH"], errors='coerce') / 10.0
-    df_model["OPLENGTH_10MIN"] = df_model["OPLENGTH_10MIN"].fillna(df_model["OPLENGTH_10MIN"].median())
+    df_model["OPLENGTH10MIN"] = pd.to_numeric(df_model["OPLENGTH"], errors='coerce') / 10.0
+    df_model["OPLENGTH10MIN"] = df_model["OPLENGTH10MIN"].fillna(df_model["OPLENGTH10MIN"].median())
 
     # Map target intraoperative indicators to binary flags
-    intraop_flags = ["ROBOTIC_ASST", "DRAIN_PLACED", "ANASTOMOSIS_CHECKED", "APPROACH_CONVERTED"]
+    intraop_flags = ["ROBOTICASST", "DRAINPLACED", "ANASTOMOSISCHECKED", "APPROACHCONVERTED"]
     for col in intraop_flags:
         df_model[col] = df_model[col].apply(lambda x: 1 if str(x).strip().lower() == "yes" else 0)
 
     # Median Imputation + Missingness Indicators for Laboratories
-    impute_metrics = ["ALBUMIN", "CREATININE", "HCT", "HEMO", "AGE_MODEL", "BMI_MODEL"]
+    impute_metrics = ["ALBUMIN", "CREATININE", "HCT", "HEMO", "AGEMODEL", "BMIMODEL"]
     for var in impute_metrics:
         df_model[var] = pd.to_numeric(df_model[var], errors='coerce')
-        df_model[f"{var}_missing"] = df_model[var].isna().astype(int)
+        df_model[f"{var}missing"] = df_model[var].isna().astype(int)
         df_model[var] = df_model[var].fillna(df_model[var].median())
 
     # Convert final dependent strings to regression-ready targets (0/1)
-    outcomes = ["ANY_COMPLICATION", "SERIOUS_COMPLICATION", "READMISSION", "REOPERATION", "LEAK"]
+    outcomes = ["ANYCOMPLICATION", "SERIOUSCOMPLICATION", "READMISSION", "REOPERATION", "LEAK"]
     for out in outcomes:
         df_model[out] = df_model[out].apply(lambda x: 1 if str(x).strip().lower() in ["yes", "1", "true"] else 0)
 
-    # --- 4. Dynamic Variance Screening Stage ---
-    print("Screening variables for zero-variance components...")
+    # --- 4. Clean Formula Construction ---
+    # FIX: Corrected typo 'C(RACEPU)' to 'C(RACEPUF)'
     preop_pool = [
-        ('Q("AGE_MODEL")', "AGE_MODEL"), ('Q("BMI_MODEL")', "BMI_MODEL"), ('C(Q("SEX"))', "SEX"), 
-        ('C(Q("HISPANIC"))', "HISPANIC"), ('C(Q("ASACLASS"))', "ASACLASS"), ('C(Q("FUNSTATPRESURG"))', "FUNSTATPRESURG"), 
-        ('C(Q("RACE_PUF"))', "RACE_PUF"), ('C(Q("DIABETES"))', "DIABETES"), ('C(Q("HYPERTENSION"))', "HYPERTENSION"), 
-        ('C(Q("SLEEP_APNEA"))', "SLEEP_APNEA"), ('C(Q("GERD"))', "GERD"), ('C(Q("COPD"))', "COPD"), 
-        ('C(Q("RENAL_INSUFFICIENCY"))', "RENAL_INSUFFICIENCY"), ('C(Q("HYPERLIPIDEMIA"))', "HYPERLIPIDEMIA"), 
-        ('C(Q("IMMUNOSUPR_THER"))', "IMMUNOSUPR_THER"), ('C(Q("SMOKER"))', "SMOKER"), ('C(Q("IVC_FILTER"))', "IVC_FILTER"), 
-        ('C(Q("DIALYSIS"))', "DIALYSIS"), ('C(Q("CARDIAC_HISTORY"))', "CARDIAC_HISTORY"), ('C(Q("VASCULAR_HISTORY"))', "VASCULAR_HISTORY"), 
-        ('C(Q("HISTORY_PE"))', "HISTORY_PE"), ('Q("ALBUMIN")', "ALBUMIN"), ('Q("ALBUMIN_missing")', "ALBUMIN_missing"), 
-        ('Q("CREATININE")', "CREATININE"), ('Q("CREATININE_missing")', "CREATININE_missing"), ('Q("HCT")', "HCT"), 
-        ('Q("HCT_missing")', "HCT_missing"), ('Q("HEMO")', "HEMO"), ('Q("HEMO_missing")', "HEMO_missing")
+        ('AGEMODEL', "AGEMODEL"), ('BMIMODEL', "BMIMODEL"), ('C(SEX)', "SEX"), 
+        ('C(HISPANIC)', "HISPANIC"), ('C(ASACLASS)', "ASACLASS"), ('C(FUNSTATPRESURG)', "FUNSTATPRESURG"), 
+        ('C(RACEPUF)', "RACEPUF"), ('C(DIABETES)', "DIABETES"), ('C(HYPERTENSION)', "HYPERTENSION"), 
+        ('C(SLEEPAPNEA)', "SLEEPAPNEA"), ('C(GERD)', "GERD"), ('C(COPD)', "COPD"), 
+        ('C(RENALINSUFFICIENCY)', "RENALINSUFFICIENCY"), ('C(HYPERLIPIDEMIA)', "HYPERLIPIDEMIA"), 
+        ('C(IMMUNOSUPRTHER)', "IMMUNOSUPRTHER"), ('C(SMOKER)', "SMOKER"), ('C(IVCFILTER)', "IVCFILTER"), 
+        ('C(DIALYSIS)', "DIALYSIS"), ('C(CARDIACHISTORY)', "CARDIACHISTORY"), ('C(VASCULARHISTORY)', "VASCULARHISTORY"), 
+        ('C(HISTORYPE)', "HISTORYPE"), ('ALBUMIN', "ALBUMIN"), ('ALBUMINmissing', "ALBUMINmissing"), 
+        ('CREATININE', "CREATININE"), ('CREATININEmissing', "CREATININEmissing"), ('HCT', "HCT"), 
+        ('HCTmissing', "HCTmissing"), ('HEMO', "HEMO"), ('HEMOmissing', "HEMOmissing")
     ]
     
     intraop_pool = [
-        ('Q("OPLENGTH_10MIN")', "OPLENGTH_10MIN"), ('C(Q("APPROACH_CONVERTED"))', "APPROACH_CONVERTED"), 
-        ('C(Q("METH_VTEPROPHYL"))', "METH_VTEPROPHYL"), ('C(Q("DRAIN_PLACED"))', "DRAIN_PLACED"), 
-        ('Q("ANASTOMOSIS_CHECKED")', "ANASTOMOSIS_CHECKED"), ('Q("ROBOTIC_ASST")', "ROBOTIC_ASST")
+        ('OPLENGTH10MIN', "OPLENGTH10MIN"), ('C(APPROACHCONVERTED)', "APPROACHCONVERTED"), 
+        ('C(METHVTEPROPHYL)', "METHVTEPROPHYL"), ('C(DRAINPLACED)', "DRAINPLACED"), 
+        ('ANASTOMOSISCHECKED', "ANASTOMOSISCHECKED"), ('ROBOTICASST', "ROBOTICASST")
     ]
 
     valid_preop = []
     for formula_str, col_name in preop_pool:
-        if df_model[col_name].nunique() > 1:
-            valid_preop.append(formula_str)
+        # Extra safeguard: Prevent crash if a future lookup key has an unexpected mismatch
+        if col_name in df_model.columns:
+            if df_model[col_name].nunique() > 1:
+                if col_name in ["AGEMODEL", "BMIMODEL", "ALBUMIN", "CREATININE", "HCT", "HEMO"]:
+                    valid_preop.append(formula_str)
+                elif (df_model[col_name] == "Yes").sum() >= 5 or df_model[col_name].dtype != object:
+                    valid_preop.append(formula_str)
+        else:
+            print(f"⚠️ Notice: Column '{col_name}' wasn't found in processed data. Skipping term dynamically.")
 
     valid_intraop = []
     for formula_str, col_name in intraop_pool:
-        if df_model[col_name].nunique() > 1:
-            valid_intraop.append(formula_str)
+        if col_name in df_model.columns:
+            if df_model[col_name].nunique() > 1:
+                valid_intraop.append(formula_str)
 
     full_model_formula = " + ".join(valid_preop) + " + " + " + ".join(valid_intraop)
 
     target_factors = {
-        'Q("OPLENGTH_10MIN")': "Operative time (per 10 min)",
-        'C(Q("APPROACH_CONVERTED"))[T.1]': "Approach conversion (MBSAQIP-coded)",
-        'C(Q("DRAIN_PLACED"))[T.1]': "Drain placed",
-        'Q("ANASTOMOSIS_CHECKED")': "Anastomosis/leak test performed",
-        'Q("ROBOTIC_ASST")': "Robotic assistance",
-        'C(Q("METH_VTEPROPHYL"))[T.Mechanical only]': "VTE prophylaxis: Mechanical only",
-        'C(Q("METH_VTEPROPHYL"))[T.Missing]': "VTE prophylaxis: Missing",
-        'C(Q("METH_VTEPROPHYL"))[T.Pharmacologic only]': "VTE prophylaxis: Pharmacologic only"
+        'OPLENGTH10MIN': "Operative time (per 10 min)",
+        'C(APPROACHCONVERTED)[T.1]': "Approach conversion (MBSAQIP-coded)",
+        'C(DRAINPLACED)[T.1]': "Drain placed",
+        'ANASTOMOSISCHECKED': "Anastomosis/leak test performed",
+        'ROBOTICASST': "Robotic assistance",
+        'C(METHVTEPROPHYL)[T.Mechanical only]': "VTE prophylaxis: Mechanical only",
+        'C(METHVTEPROPHYL)[T.Missing]': "VTE prophylaxis: Missing",
+        'C(METHVTEPROPHYL)[T.Pharmacologic only]': "VTE prophylaxis: Pharmacologic only"
     }
 
     regression_table = {var: {"Intraoperative Factor": label} for var, label in target_factors.items()}
@@ -169,40 +179,62 @@ def generate_regression_table(input_txt_path, output_csv_path):
     # --- 5. Fit Logistic Models Across Endpoints ---
     for outcome in outcomes:
         print(f"Fitting Adjusted Model for outcome: {outcome}...")
-        formula = f'Q("{outcome}") ~ {full_model_formula}'
+        formula = f'{outcome} ~ {full_model_formula}'
         
         try:
-            # FIX: Switched optimizer method to 'bfgs' with maxiter=400 to handle data separation gracefully
             model = smf.logit(formula, data=df_model).fit(method='bfgs', maxiter=400, disp=0)
             coefficients = model.params
-            intervals = model.conf_int()
             
+            try:
+                intervals = model.conf_int()
+                has_intervals = True
+            except:
+                has_intervals = False
+
             for var_name in target_factors.keys():
                 if var_name in coefficients.index:
                     or_val = np.exp(coefficients[var_name])
-                    lower = np.exp(intervals.loc[var_name, 0])
-                    upper = np.exp(intervals.loc[var_name, 1])
                     
-                    # Catch and format separated extreme/infinite values neatly
-                    if or_val > 100 or or_val < 0.01:
-                        regression_table[var_name][outcome] = "Inf (Separated)"
+                    if has_intervals and var_name in intervals.index:
+                        lower = np.exp(intervals.loc[var_name, 0])
+                        upper = np.exp(intervals.loc[var_name, 1])
+                        
+                        if or_val > 100 or or_val < 0.01 or np.isnan(lower):
+                            regression_table[var_name][outcome] = f"{or_val:.2f} (Separated)"
+                        else:
+                            regression_table[var_name][outcome] = f"{or_val:.2f} ({lower:.2f}-{upper:.2f})"
                     else:
-                        regression_table[var_name][outcome] = f"{or_val:.2f} ({lower:.2f}-{upper:.2f})"
+                        regression_table[var_name][outcome] = f"{or_val:.2f} (CI Unstable)"
                 else:
                     regression_table[var_name][outcome] = "N/A"
+                    
         except Exception as e:
-            print(f"⚠️ Stability warning for endpoint {outcome}: {e}")
+            print(f"⚠️ Skipping statistical compilation for {outcome}: {e}")
             for var_name in target_factors.keys():
-                regression_table[var_name][outcome] = "Data Unstable"
+                regression_table[var_name][outcome] = "Model Skipped"
 
     # --- 6. Build Matrix and Save Output ---
     output_rows = list(regression_table.values())
     df_output = pl.DataFrame(output_rows)
-    final_order = ["Intraoperative Factor"] + outcomes
-    df_output = df_output.select(final_order)
     
+    rename_dict = {
+        "ANYCOMPLICATION": "ANY_COMPLICATION", 
+        "SERIOUSCOMPLICATION": "SERIOUS_COMPLICATION",
+    }
+    
+    final_order = ["Intraoperative Factor"]
+    for out in outcomes:
+        if out in df_output.columns:
+            final_order.append(out)
+        else:
+            df_output = df_output.with_columns(pl.lit("Model Skipped").alias(out))
+            final_order.append(out)
+    
+    # Only rename columns that exist (avoids polars error on missing keys)
+    active_renames = {k: v for k, v in rename_dict.items() if k in df_output.columns}
+    df_output = df_output.select(final_order).rename(active_renames)
     df_output.write_csv(output_csv_path)
-    print(f"\n🎉 Success! The completed Multivariable Regression Table has been generated at: {output_csv_path}")
+    print(f"\n🎉 Success! The completed Multivariable Regression Table has been successfully written to: {output_csv_path}")
 
 
 if __name__ == '__main__':
