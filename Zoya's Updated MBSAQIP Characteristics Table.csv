@@ -1,0 +1,47 @@
+Variable,Sleeve Gastrectomy,Roux-en-Y Gastric Bypass
+Total N,135041,59208
+Age (years),42.79 ± 11.75,44.77 ± 11.31
+Pre-op BMI,44.85 ± 7.69,44.54 ± 7.86
+Highest pre-op BMI,46.66 ± 8.10,46.46 ± 8.31
+Operation length (min),70.29 ± 37.16,130.22 ± 60.59
+Length of stay (days),1.22 ± 0.98,1.58 ± 1.60
+Albumin (g/dL),4.15 ± 0.40,4.12 ± 0.40
+Creatinine (mg/dL),0.84 ± 0.57,0.83 ± 0.45
+Hematocrit (%),41.08 ± 3.85,40.98 ± 3.83
+HbA1c (%),6.03 ± 1.32,6.14 ± 1.33
+Female sex,110765 (82.0%),50467 (85.2%)
+Hypertension,56344 (41.7%),26724 (45.1%)
+Hyperlipidemia,27299 (20.2%),14579 (24.6%)
+Obstructive sleep apnea,45872 (34.0%),23291 (39.3%)
+GERD,34755 (25.7%),27992 (47.3%)
+Current smoker,9106 (6.7%),3463 (5.8%)
+COPD,1422 (1.1%),734 (1.2%)
+History of PE,1673 (1.2%),916 (1.5%)
+History of DVT,2084 (1.5%),1113 (1.9%)
+Renal insufficiency,722 (0.5%),267 (0.5%)
+Previous foregut surgery,5575 (4.1%),11392 (19.2%)
+Immunosuppressive therapy,2965 (2.2%),1368 (2.3%)
+Therapeutic anticoagulation,3465 (2.6%),1676 (2.8%)
+IVC filter,264 (0.2%),155 (0.3%)
+On dialysis,460 (0.3%),99 (0.2%)
+Robotic assist,30820 (22.8%),14689 (24.8%)
+Approach converted,467 (0.3%),268 (0.5%)
+Drain placed,6927 (5.1%),8379 (14.2%)
+Reoperation within 30 days,849 (0.6%),1250 (2.1%)
+Readmission within 30 days,3106 (2.3%),3106 (5.2%)
+Intervention within 30 days,676 (0.5%),964 (1.6%)
+Anastomotic/staple line leak,213 (0.2%),195 (0.3%)
+Pulmonary embolism,129 (0.1%),84 (0.1%)
+Sepsis,119 (0.1%),110 (0.2%)
+Septic shock,38 (0.0%),75 (0.1%)
+Venous thrombosis,312 (0.2%),115 (0.2%)
+Blood transfusion,699 (0.5%),622 (1.1%)
+Pneumonia,143 (0.1%),203 (0.3%)
+Unplanned ICU admission,450 (0.3%),439 (0.7%)
+Emergency department visit,9284 (6.9%),6378 (10.8%)
+Stroke/CVA,22 (0.0%),9 (0.0%)
+Myocardial infarction,33 (0.0%),20 (0.0%)
+Urinary tract infection,381 (0.3%),262 (0.4%)
+C. diff colitis,67 (0.0%),46 (0.1%)
+Diabetes (insulin-dependent),6527 (4.8%),4782 (8.1%)
+Diabetes (non-insulin),20002 (14.8%),10488 (17.7%)
